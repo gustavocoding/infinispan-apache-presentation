@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+
+    <title>Infinispan and Apache Integrations</title>
+
+    <meta name="description" content="Infinispan and Apache">
+    <meta name="author" content="Gustavo Fernandes">
+
+    <meta name="apple-mobile-web-app-capable" content="yes"/>
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, minimal-ui">
+
+    <link rel="stylesheet" href="css/reveal.css">
+    <link rel="stylesheet" href="css/theme/solarized.css" id="theme">
+
+    <!-- Code syntax highlighting -->
+    <link rel="stylesheet" href="lib/css/zenburn.css">
+
+    <!-- Printing and PDF exports -->
+    <script>
+        var link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.type = 'text/css';
+        link.href = window.location.search.match(/print-pdf/gi) ? 'css/print/pdf.css' : 'css/print/paper.css';
+        document.getElementsByTagName('head')[0].appendChild(link);
+    </script>
+
+    <!--[if lt IE 9]>
+    <script src="lib/js/html5shiv.js"></script>
+    <![endif]-->
+</head>
+
+<body>
+
+<div class="reveal">
+
+    <!-- Any section element inside of this container is displayed as a slide -->
+    <div class="slides">
+        <section>
+            <h2>Infinispan and Apache Integrations</h2>
+
+                <b>Gustavo Fernandes / gustavo@redhat.com</b>
+
+        </section>
+
+        <section>
+            <h2>Integrations</h2>
+            <ul>
+                <li>Apache Lucene (Library Mode)</li>
+                <li>Apache Spark (Server Mode)</li>
+                <li>Apache Hadoop (Server Mode)</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>Infinispan & Lucene</h2>
+            <ul>
+                <li>Index Engine</li>
+                <li>Hibernate Search Provider</li>
+                <li>Lucene Directory</li>
+            </ul>
+        </section>
+
+        <section data-transition="none">
+            <h2>Index Engine - Dependency</h2>
+            <pre><code class="xml">
+&lt;dependency&gt;
+   &lt;groupId&gt;org.infinispan&lt;/groupId&gt;
+   &lt;artifactId&gt;infinispan-embedded-query&lt;/artifactId&gt;
+   &lt;version&gt;8.0.1.Final&lt;/version&gt;
+&lt;/dependency&gt;
+        </code></pre>
+        </section>
+
+        <section data-transition="none">
+            <h2>Index Engine - Enabling</h2>
+            <pre><code class="java">
+Configuration configuration = new ConfigurationBuilder()
+         .indexing().index(Index.LOCAL)
+            .addProperty("default.worker.execution", "async")
+         .build();
+
+EmbeddedCacheManager cm = new DefaultCacheManager(configuration);
+Cache&lt;Integer, DaySummary&gt; cache = cm.getCache();
+            </code></pre>
+        </section>
+
+        <section data-transition="none">
+            <h2>Index Engine - Storage in RAM</h2>
+            <pre><code class="java">
+Configuration configuration = new ConfigurationBuilder()
+     .indexing().index(Index.LOCAL)
+         .addProperty("default.worker.execution", "async")
+         .addProperty("default.directory_provider", "ram")
+     .build();
+
+EmbeddedCacheManager cm = new DefaultCacheManager(configuration);
+Cache&lt;Integer, DaySummary&gt; cache = cm.getCache();
+            </code></pre>
+        </section>
+
+        <section data-transition="none">
+            <h2>Index Engine - Storage in Infinispan</h2>
+            <pre><code class="java">
+Configuration configuration = new ConfigurationBuilder()
+     .indexing().index(Index.LOCAL)
+         .addProperty("default.worker.execution", "async")
+         .addProperty("default.directory_provider", "infinispan")
+     .build();
+
+EmbeddedCacheManager cm = new DefaultCacheManager(configuration);
+Cache&lt;Integer, DaySummary&gt; cache = cm.getCache();
+            </code></pre>
+        </section>
+
+        <section data-transition="none">
+            <h2>Index Engine - Storage on Filesystem</h2>
+            <pre><code class="java">
+Configuration configuration = new ConfigurationBuilder()
+   .indexing().index(Index.LOCAL)
+         .addProperty("default.directory_provider", "filesystem")
+         .addProperty("default.indexBase", "/path/to/index")
+   .build();
+            </code></pre>
+        </section>
+
+        <section>
+            <h2>Index Engine - Configuring Entities</h2>
+            <pre><code class="java">public class DaySummary  {
+      private Station station; 
+      private Integer year;
+      private Integer month;
+      private Integer day;
+      Float avgTemp;
+}
+public class Station {
+      private Integer wban;
+      private String name;
+      private Country country;
+      private Float latitude;
+      private Float longitude;
+}</code><code class="java">
+public class Country {
+       private String name;
+       private String code;
+}</code></pre>
+        </section>
+
+        <section>
+            <h2>Index Engine - Configuring Entities</h2>
+            <pre><code class="java" style="max-height: 600px">
+@Indexed
+public class DaySummary  {
+
+    @IndexedEmbedded
+    private Station station;
+
+    @Field(store = Store.YES, analyze = Analyze.NO)
+    private Integer year;
+
+    @Field(store = Store.YES, analyze = Analyze.NO)
+    private Integer month;
+
+    private Integer day;
+
+    @Field(store = Store.YES)
+    Float avgTemp;
+            </code></pre>
+            <pre class="fragment"><code>Document
+     Field("station.name")
+     Field("station.usaf")
+     NumericField("year", Stored.YES, Indexed.NO)
+     NumericField("month", Stored.YES, Indexed.NO)</code></pre>
+        </section>
+
+        <section>
+            <h2>Index Engine - Configuring Entities</h2>
+            <pre><code class="java" style="max-height: 100%">
+@Indexed
+@AnalyzerDef(name = "lowercaseKeyword",
+   tokenizer = @TokenizerDef(factory = KeywordTokenizerFactory.class),
+   filters = {
+      @TokenFilterDef(factory = LowerCaseFilterFactory.class)
+   }
+)
+public class Country {
+
+    @Analyzer(definition = "lowercaseKeyword")
+    @Field(store = Store.YES)
+    private String name;
+
+    @Field(store = Store.YES, analyze = Analyze.NO)
+    private String code;
+                
+            </code></pre>
+        </section>
+
+        <section>
+            <h2>Index Engine - Querying with Lucene</h2>
+            <pre><code class="java" style="max-width: 100%">
+QueryParser qp = new QueryParser("default", new StandardAnalyzer());
+                
+Query luceneQ = qp.parse("+station.name:airport +year:2014 +month:12 +(avgTemp < 0)");
+
+CacheQuery cq = Search.getSearchManager(cache).getQuery(luceneQ, DaySummary.class);
+                
+ List&lt;Object&gt; results = query.list();
+            </code></pre>
+        </section>
+
+        <section>
+            <h2>Index Engine - Querying with Lucene</h2>
+            <pre><code class="java" style="max-width: 100%">
+SearchIntegrator searchFactory = Search.getSearchManager(cache).getSearchFactory();
+                
+IndexReader indexReader = searchFactory.getIndexReaderAccessor().open(DaySummary.class);
+                
+IndexSearcher searcher = new IndexSearcher(indexReader);
+            </code></pre>
+        </section>
+
+        <section>
+            <h2>Hibernate Search</h2>
+            <ul>
+                <li>Data in a RDBMS</li>
+                <li>Synced with a Lucene Index</li>
+                <li>Powerfull search capabilities</li>
+                <li>Stored on disk, ram, Elasticsearch, Infinispan, ...</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>Hibernate Search - storing on Infinispan</h2>
+            <pre><code class="xml">
+&lt;dependency&gt;
+   &lt;groupId&gt;org.infinispan&lt;/groupId&gt;
+   &lt;artifactId&gt;infinispan-directory-provider&lt;/artifactId&gt;
+   &lt;version&gt;8.0.1.Final&lt;/version&gt;
+&lt;/dependency&gt;
+        </code></pre>
+persistence.xml or hibernate.cfg.xml 
+            <pre><code class="xml">
+&lt;property name="hibernate.search.default.directory_provider" value="infinispan"/&gt;
+        </code></pre>
+
+        </section>
+
+        <section>
+            <h2>Advantages</h2>
+            <ul>
+                <li>Performance - same VM</li>
+                <li>Replication - failover/scalability</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>Lucene Directory</h2>
+            <pre><code class="java">
+// Create directory
+FSDirectory directory = FSDirectory.open(Paths.get("/tmp/lucene"));
+
+// Create document
+Document document = new Document();
+document.add(new StringField("field1","value", Field.Store.NO));
+
+// Add document to index
+IndexWriterConfig cfg = new IndexWriterConfig(new StandardAnalyzer());
+IndexWriter indexWriter = new IndexWriter(directory, cfg);
+indexWriter.addDocument(document);
+indexWriter.close();
+        </code></pre>
+      </section>      
+
+      <section data-transition="none">
+         <h2>Lucene Directory</h2>
+         <pre><code class="java">
+// Create Infinispan directory
+DefaultCacheManager cacheManager = ... 
+Cache data = cacheManager.getCache("lucene-data");
+Cache lock = cacheManager.getCache("lucene-lock");
+Cache metadata = cacheManager.getCache("lucene-metadata");
+
+BuildContext buildContext = DirectoryBuilder
+            .newDirectoryInstance(metadata, data, lock, "my-index");
+
+Directory directory = buildContext.create();
+
+Document document = ...; 
+IndexWriter indexWriter = new IndexWriter(directory, writerCfg);
+indexWriter.addDocument(document);
+indexWriter.close();
+         </code></pre>
+      </section>
+
+      <section>
+            <h2>Lucene Directory</h2>
+            <pre><code class="xml">
+&lt;dependency&gt;
+   &lt;groupId&gt;org.infinispan&lt;/groupId&gt;
+   &lt;artifactId&gt;infinispan-lucene-directory&lt;/artifactId&gt;
+   &lt;version&gt;8.0.1.Final&lt;/version&gt;
+&lt;/dependency&gt;
+        </code></pre>
+      </section>
+
+        <section>
+            <h2>Client Server connectors</h2>
+        </section>
+
+        <section>
+            <h2>Apache Spark</h2>
+            <ul>
+                <li>Batch and Streaming computing engine</li>
+                <li>Superceeds traditional map reduce</li>
+                <li>Addons for SQL, Machine Learning, Graph</li>
+                <li>Integrates with several datasources</li>
+            </ul>
+        </section>
+    
+       <section>
+            <h2>Infinispan RDD - creation</h2>
+            <pre><code class="java" style="max-height: 500px">
+// Create java spark context
+SparkConf conf = new SparkConf().setAppName("infinispan-spark-job");
+JavaSparkContext jsc = new JavaSparkContext(conf);
+
+// Create InfinispanRDD
+Properties properties = new Properties();
+properties.put("infinispan.client.hotrod.server_list", "10.1.2.12");
+
+JavaPairRDD&lt;Integer, Temperature&gt; infinispanRDD = InfinispanJavaRDD
+		          .createInfinispanRDD(jsc, properties);
+            </code></pre>
+        </section>
+
+        <section>
+            <h2>Infinispan RDD - operations</h2>
+            <pre><code class="java" style="max-height: 500px">
+// RemoteCache&lt;Integer,Temperature&gt;
+
+Function&lt;Double, Double&gt; celsiusToF = c -> c * 9 / 5 + 32;
+
+infinispanRDD.values()
+   .map(Temperature::getValue)
+   .map(celsiusToF).filter(t -> t > 50)
+   .foreach(System.out::println);
+            </code></pre>
+        </section>
+
+        <section>
+            <h2>Infinispan RDD - Writing</h2>
+            <pre><code class="java" style="max-height: 500px">
+// Create java spark context
+SparkConf conf = new SparkConf().setAppName("infinispan-write-job");
+JavaSparkContext jsc = new JavaSparkContext(conf);
+
+// Create in-memory RDD
+JavaPairRDD&lt;Long, Temperature&gt; keyValueRDD = jsc.parallelize(
+     asList(new Temperature(21, "London"),
+            new Temperature(34, "Rome"),
+            new Temperature(33, "Barcelona"),
+            new Temperature(8, "Oslo")))
+     .zipWithIndex().mapToPair(Tuple2::swap);
+
+// Write to Infinispan
+Properties properties = new Properties();
+properties.put("infinispan.client.hotrod.server_list", localAddress);
+
+InfinispanJavaRDD.write(keyValueRDD, properties);
+            </code></pre>
+        </section>
+
+ 	<section>
+            <h2>Infinispan DStream consumer</h2>
+            <pre><code class="scala" style="max-height: 500px">
+import org.apache.spark.streaming.kafka._
+import org.infinispan.spark.stream._
+
+val kafkaStream = KafkaUtils.createStream(streamingContext, 
+     [ZK quorum], [consumer group id], [n partitions])
+
+// Infinispan properties 
+val properties = new Properties()
+properties.put("infinispan.client.hotrod.server_list", localAddress);
+
+// Write to Infinispan
+kafkaStream.writeToInfinispan(infinispanProperties)
+
+            </code></pre>
+        </section>
+
+       <section>
+            <h2>Infinispan DStream producer</h2>
+                        <pre><code class="scala" style="max-height: 100%, max-width: 700px">
+val infinispanStream =
+         new InfinispanInputDStream[Long, DaySummary](
+	       streamingContext, StorageLevel.MEMORY_ONLY, properties
+         )
+
+val stream = infinispanStream
+   .transform(rdd => 
+        rdd.collect { case(k, v, CLIENT_CACHE_ENTRY_CREATED) =>    
+             (v.getCountry, 1) 
+        }
+        .reduceByKey(_ + _))
+
+val lastMinute = stream.reduceByKeyAndWindow(_ + _, Seconds(60))
+
+            </code></pre>
+        </section>
+
+        <section>
+            <h2>Infinispan Hadoop Connector</h2>
+            <ul>
+                <li>InfinispanInputFormat and InfinispanOutputFormat</li>
+                <li>Partition by segments</li>
+                <li>Locality hint</li>
+            </ul>
+        </section>
+ 
+        <section>
+            <h2>Example Job Configuration - Generic</h2>
+            <pre><code class="java" style="max-height: 500px">
+import org.infinispan.hadoop.*;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.mapreduce.Job;
+import static org.infinispan.hadoop.InfinispanConfiguration;
+
+Configuration configuration = new Configuration();
+
+// Configure input/output servers
+configuration.set(INPUT_REMOTE_CACHE_HOST, host);
+configuration.set(OUTPUT_REMOTE_CACHE_HOST, host);
+
+// Configure caches to be used
+configuration.set(INPUT_REMOTE_CACHE_NAME, "myInputCache");
+configuration.set(OUTPUT_REMOTE_CACHE_NAME, "myOutputCache");
+
+Job job = Job.getInstance(configuration, "Infinispan job");
+
+            </code></pre>
+        </section>
+
+        <section>
+            <h2>Using job to run MapReduce</h2>
+            <pre><code class="java" style="max-height: 500px">
+Job job = ... 
+
+// Map and Reduce implementation
+job.setMapperClass(MapClass.class);
+job.setReducerClass(ReduceClass.class);
+
+job.setInputFormatClass(InfinispanInputFormat.class);
+job.setOutputFormatClass(InfinispanOutputFormat.class);
+
+            </code></pre>
+        </section>
+
+        <section>
+            <h2>Apache Flink dataflow</h2>
+            <pre><code class="java" style="max-height: 500px">
+Job job = ... 
+
+InfinispanInputFormat&lt;Long, String&gt; infinispanInputFormat = 
+         new InfinispanInputFormat<>();
+
+// Obtain the Execution environment from Flink
+final ExecutionEnvironment env = ExecutionEnvironment.getExecutionEnvironment();
+
+// Create a DataSource that reads data using the InfinispanInputFormat
+DataSource&lt;Tuple2&lt;Long, String>> infinispanDS = 
+                   env.createHadoopInput(infinispanInputFormat, 
+                                         Long.class, String.class, job);
+            </code></pre>
+        </section>
+
+        <section>
+            <h2>Thanks</h2>
+            <p>Slides<br>
+            <a href="https://github.com/gustavonalle/infinispan-apache-presentation">https://github.com/gustavonalle/infinispan-apache-presentation</a><br>
+            </p>
+	    <p>Infinispan Spark connector<br>
+            <a href="http://github.com/infinispan/infinispan-spark/">github.com/infinispan/infinispan-spark</a><br>
+            </p>
+            Infinispan Hadoop connector<br>
+            <a href="http://github.com/infinispan/infinispan-hadoop/">github.com/infinispan/infinispan-hadoop</a><br>
+        </section>
+
+    </div>
+
+</div>
+
+<script src="lib/js/head.min.js"></script>
+<script src="js/reveal.js"></script>
+
+<script>
+
+    // Full list of configuration options available at:
+    // https://github.com/hakimel/reveal.js#configuration
+    Reveal.initialize({
+        controls: true,
+        progress: true,
+        history: true,
+        center: true,
+        width: 1260,
+        height: 700,
+
+        transition: 'slide', // none/fade/slide/convex/concave/zoom
+
+        // Optional reveal.js plugins
+        dependencies: [
+            {
+                src: 'lib/js/classList.js', condition: function () {
+                return !document.body.classList;
+            }
+            },
+            {
+                src: 'plugin/markdown/marked.js', condition: function () {
+                return !!document.querySelector('[data-markdown]');
+            }
+            },
+            {
+                src: 'plugin/markdown/markdown.js', condition: function () {
+                return !!document.querySelector('[data-markdown]');
+            }
+            },
+            {
+                src: 'plugin/highlight/highlight.js', async: true, condition: function () {
+                return !!document.querySelector('pre code');
+            }, callback: function () {
+                hljs.initHighlightingOnLoad();
+            }
+            },
+            {src: 'plugin/zoom-js/zoom.js', async: true},
+            {src: 'plugin/notes/notes.js', async: true}
+        ]
+    });
+
+</script>
+
+</body>
+</html>
